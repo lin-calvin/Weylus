@@ -87,7 +87,8 @@ pub fn run(config: &Config, log_receiver: mpsc::Receiver<String>) {
             "EXPERIMENTAL! This may crash your desktop! Enables screen \
         capturing for Wayland using PipeWire and GStreamer.",
         );
-        check_wayland.set_checked(config.wayland_support);
+        // Mutually exclusive with virtual display
+        check_wayland.set_checked(config.wayland_support && config.virtual_display.is_none());
     }
 
     let mut label_hw_accel = Frame::default()
@@ -143,6 +144,41 @@ pub fn run(config: &Config, log_receiver: mpsc::Receiver<String>) {
         check_nvenc.hide();
     }
 
+    #[cfg(target_os = "linux")]
+    let mut check_virtual_display = CheckButton::default()
+        .with_size(70, height)
+        .below_of(&check_native_hw_accel, 0)
+        .with_label("GNOME\nVirtual\nDisplay");
+    #[cfg(target_os = "linux")]
+    {
+        check_virtual_display.set_tooltip(
+            "Creates a virtual display using GNOME Mutter's ScreenCast API. \
+             Mutually exclusive with Wayland/PipeWire Support.",
+        );
+        check_virtual_display.set_checked(config.virtual_display.is_some());
+    }
+
+    #[cfg(target_os = "linux")]
+    let mut input_virtual_display = Input::default()
+        .with_size(100, height)
+        .right_of(&check_virtual_display, 2 * padding)
+        .with_label("Size (WxH)");
+    #[cfg(target_os = "linux")]
+    {
+        input_virtual_display
+            .set_value(config.virtual_display.as_deref().unwrap_or("1920x1080"));
+        if config.virtual_display.is_none() {
+            input_virtual_display.hide();
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    let mut but_toggle = Button::default()
+        .with_size(width, height)
+        .below_of(&check_virtual_display, 2 * padding)
+        .with_label("Start");
+
+    #[cfg(not(target_os = "linux"))]
     let mut but_toggle = Button::default()
         .with_size(width, height)
         .below_of(&check_native_hw_accel, 2 * padding)
@@ -207,6 +243,32 @@ pub fn run(config: &Config, log_receiver: mpsc::Receiver<String>) {
         });
     }
 
+    #[cfg(target_os = "linux")]
+    {
+        let vd_check = check_virtual_display.clone();
+        let mut vd_input = input_virtual_display.clone();
+        check_wayland.set_callback(move |cb| {
+            if cb.is_checked() {
+                vd_check.set_checked(false);
+                vd_input.hide();
+            }
+        });
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let wl_check = check_wayland.clone();
+        let mut vd_input = input_virtual_display.clone();
+        check_virtual_display.set_callback(move |cb| {
+            if cb.is_checked() {
+                wl_check.set_checked(false);
+                vd_input.show();
+            } else {
+                vd_input.hide();
+            }
+        });
+    }
+
     let mut toggle_server = move |but: &mut Button| {
         if let Err(err) = || -> Result<(), Box<dyn std::error::Error>> {
             let mut config = config.lock().unwrap();
@@ -229,6 +291,16 @@ pub fn run(config: &Config, log_receiver: mpsc::Receiver<String>) {
                     {
                         config.try_vaapi = check_native_hw_accel.is_checked();
                         config.wayland_support = check_wayland.is_checked();
+                        config.virtual_display = if check_virtual_display.is_checked() {
+                            let v = input_virtual_display.value();
+                            if v.is_empty() {
+                                Some("1920x1080".to_string())
+                            } else {
+                                Some(v)
+                            }
+                        } else {
+                            None
+                        };
                     }
                     #[cfg(any(target_os = "linux", target_os = "windows"))]
                     {

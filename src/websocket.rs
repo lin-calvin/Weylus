@@ -62,6 +62,8 @@ pub struct WeylusClientConfig {
     pub encoder_options: EncoderOptions,
     #[cfg(target_os = "linux")]
     pub wayland_support: bool,
+    #[cfg(target_os = "linux")]
+    pub virtual_display: Option<(u32, u32)>,
     pub no_gui: bool,
 }
 
@@ -199,6 +201,8 @@ impl<S, R, FnUInput> WeylusClientHandler<S, R, FnUInput> {
             #[cfg(target_os = "linux")]
             self.config.wayland_support,
             #[cfg(target_os = "linux")]
+            self.config.virtual_display,
+            #[cfg(target_os = "linux")]
             self.capture_cursor,
         );
         self.capturables.iter().for_each(|c| {
@@ -317,6 +321,41 @@ fn handle_video<S: WeylusSender + Clone + 'static>(
     let mut paused = false;
 
     loop {
+        if recorder.is_none() {
+            match receiver.recv() {
+                Ok(cmd) => match cmd {
+                    VideoCommands::Start(config) => {
+                        match config.capturable.recorder(config.capture_cursor) {
+                            Ok(r) => {
+                                recorder = Some(r);
+                                max_width = config.max_width;
+                                max_height = config.max_height;
+                                send_message(&mut sender, MessageOutbound::ConfigOk);
+                            }
+                            Err(err) => {
+                                warn!("Failed to init screen cast: {}!", err);
+                                send_message(
+                                    &mut sender,
+                                    MessageOutbound::Error("Failed to init screen cast!".into()),
+                                )
+                            }
+                        }
+                        last_frame = Instant::now();
+                        let d = 1.0 / config.frame_rate;
+                        frame_duration = if d.is_finite() {
+                            Duration::from_secs_f64(d)
+                        } else {
+                            EFFECTIVE_INIFINITY
+                        };
+                        frame_duration = frame_duration.min(EFFECTIVE_INIFINITY);
+                    }
+                    _ => {}
+                },
+                Err(_) => return,
+            }
+            continue;
+        }
+
         let now = Instant::now();
         let elapsed = now - last_frame;
         let frames_passed = (elapsed.as_secs_f64() / frame_duration.as_secs_f64()) as u32;
@@ -380,10 +419,6 @@ fn handle_video<S: WeylusSender + Clone + 'static>(
                 video_encoder = None;
             }
             Err(RecvTimeoutError::Timeout) => {
-                if recorder.is_none() {
-                    warn!("Screen capture not initalized, can not send video frame!");
-                    continue;
-                }
                 let pixel_data = recorder.as_mut().unwrap().capture();
                 if let Err(err) = pixel_data {
                     warn!("Error capturing screen: {}", err);

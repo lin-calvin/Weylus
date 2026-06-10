@@ -114,6 +114,11 @@ pub struct Config {
     #[serde(default)]
     pub wayland_support: bool,
 
+    #[cfg(target_os = "linux")]
+    #[arg(long, help = "GNOME Virtual Display size in WxH format (e.g. 1920x1080).")]
+    #[serde(default)]
+    pub virtual_display: Option<String>,
+
     #[arg(long, help = "Print template of index.html served by Weylus.")]
     #[serde(skip)]
     pub print_index_html: bool,

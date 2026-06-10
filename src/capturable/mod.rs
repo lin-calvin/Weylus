@@ -5,6 +5,8 @@ use tracing::warn;
 #[cfg(target_os = "macos")]
 pub mod core_graphics;
 #[cfg(target_os = "linux")]
+pub mod mutter;
+#[cfg(target_os = "linux")]
 pub mod pipewire;
 #[cfg(target_os = "linux")]
 #[allow(dead_code)]
@@ -65,11 +67,20 @@ impl Clone for Box<dyn Capturable> {
 
 pub fn get_capturables(
     #[cfg(target_os = "linux")] wayland_support: bool,
+    #[cfg(target_os = "linux")] virtual_display: Option<(u32, u32)>,
     #[cfg(target_os = "linux")] capture_cursor: bool,
 ) -> Vec<Box<dyn Capturable>> {
     let mut capturables: Vec<Box<dyn Capturable>> = vec![];
     #[cfg(target_os = "linux")]
     {
+        if let Some((width, height)) = virtual_display {
+            use crate::capturable::mutter::get_virtual_display_capturable;
+            match get_virtual_display_capturable(width, height, capture_cursor) {
+                Ok(c) => capturables.push(Box::new(c)),
+                Err(err) => warn!("Failed to create virtual display: {}", err),
+            }
+        }
+
         if wayland_support {
             use crate::capturable::pipewire::get_capturables as get_capturables_pw;
             match get_capturables_pw(capture_cursor) {

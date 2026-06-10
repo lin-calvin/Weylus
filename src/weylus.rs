@@ -70,6 +70,12 @@ impl Weylus {
                 encoder_options,
                 #[cfg(target_os = "linux")]
                 wayland_support: config.wayland_support,
+                #[cfg(target_os = "linux")]
+                virtual_display: config.virtual_display.as_ref().and_then(|s| {
+                    s.split_once('x').and_then(|(w, h)| {
+                        Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?))
+                    })
+                }),
                 no_gui: config.no_gui,
             },
         );
